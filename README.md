@@ -4,3 +4,7 @@
 O ReservaFácil é uma aplicação CLI (Interface de Linha de Comando) projetada para solucionar uma dor real de grande parte da população: a falta de clareza sobre segurança financeira.
 
 A aplicação calcula com precisão quantos meses um indivíduo consegue manter seu padrão de vida com base em suas economias atuais e gastos fixos, emitindo alertas baseados em recomendações financeiras de mercado.
+
+
+"Como Executar a Aplicação"
+com os comandos pip install -r requirements.txt e python src/main.py.
