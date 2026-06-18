@@ -2,9 +2,9 @@ import os
 import requests
 from supabase import create_client, Client, ClientOptions
 
-# Busca as credenciais das variáveis de ambiente salvas no terminal
-URL_SUPABASE = os.getenv("SUPABASE_URL")
-CHAVE_SUPABASE = os.getenv("SUPABASE_KEY")
+# Credenciais do Supabase inseridas diretamente para a apresentação
+URL_SUPABASE = "https://lxkdyjyfqxhqvxoyzejg.supabase.co"
+CHAVE_SUPABASE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx4a2R5anlmcXhocXZ4b3l6ZWpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNjkxMTYsImV4cCI6MjA5Njc0NTExNn0.g49C6haZMdyadzTG06v905An6G3OtCaiymAXX64O494"
 
 def conectar_banco() -> Client:
     """Estabelece conexão com o banco de dados no Supabase de forma síncrona."""
@@ -13,7 +13,7 @@ def conectar_banco() -> Client:
     try:
         # Configuração síncrona obrigatória para evitar erros de loop no terminal local
         return create_client(
-            URL_SUPABASE, 
+            URL_SUPABASE,
             CHAVE_SUPABASE,
             options=ClientOptions(postgrest_client_timeout=10, gotrue_client_timeout=10)
         )
@@ -35,47 +35,46 @@ def buscar_cotacao_dolar():
         resposta = requests.get(url, timeout=5)
         if resposta.status_code == 200:
             dados = resposta.json()
-            return float(dados["USDBRL"]["bid"])
-        return None
+            return round(float(dados["USDBRL"]["bid"]), 2)
     except Exception:
         return None
+    return None
 
-def salvar_simulacao(db: Client, gastos: float, poupado: float, meses: float, valor_usd: float):
-    """Insere os dados da simulação na tabela do Supabase."""
+def salvar_simulacao(db: Client, valor_poupado, meses_cobertos, cotacao_dolar):
+    """C - CREATE: Salva o registro da simulação na nuvem (Supabase)."""
     if not db:
         print("[Aviso] Banco de dados não conectado. Dados não salvos na nuvem.")
-        return
+        return False
     try:
         dados = {
-            "gastos_mensais": gastos,
-            "valor_poupado": poupado,
-            "meses_cobertos": meses,
-            "valor_usd": valor_usd
+            "valor_poupado": valor_poupado,
+            "meses_cobertos": meses_cobertos,
+            "cotacao_dolar": cotacao_dolar
         }
-        db.table("simulacoes").insert(dados).execute()
-        print("✅ Simulação salva com sucesso no Supabase!")
+        db.table("Tb_simulacao").insert(dados).execute()
+        print("✅ Simulação salva com sucesso na nuvem!")
+        return True
     except Exception as e:
-        print(f"❌ Erro ao salvar no banco: {e}")
+        print(f"❌ Erro ao salvar dados: {e}")
+        return False
 
 def listar_historico(db: Client):
-    """Busca e exibe os registros armazenados no banco de dados."""
+    """R - READ: Consulta e exibe o histórico salvo na tabela."""
     if not db:
-        print("❌ Banco de dados não conectado.")
+        print("[Erro] Sem conexão com a nuvem para listar o histórico.")
         return
     try:
-        resposta = db.table("simulacoes").select("*").order("created_at", descending=True).execute()
-        registros = resposta.data
+        resposta = db.table("Tb_simulacao").select("*").execute()
+        historico = resposta.data
         
-        print("\n================ HISTÓRICO DE SIMULAÇÕES ================")
-        if not registros:
+        print("\n--- HISTÓRICO DE SIMULAÇÕES (SUPABASE) ---")
+        if not historico:
             print("Nenhum registro encontrado.")
-        for reg in registros:
-            # Garante tratamento caso valor_usd venha nulo do banco antigo
-            v_usd = reg.get('valor_usd') or 0.0
-            print(f"Gasto: R$ {reg['gastos_mensais']:.2f} | Guardado: R$ {reg['valor_poupado']:.2f} | Autonomia: {reg['meses_cobertos']} meses | Em USD: $ {v_usd:.2f}")
-        print("=========================================================")
+        for item in historico:
+            print(f"ID: {item['id']} | Poupança: R$ {item['valor_poupado']} | Cobertura: {item['meses_cobertos']} meses | Dólar: R$ {item['cotacao_dolar']}")
+        print("------------------------------------------")
     except Exception as e:
-        print(f"Erro ao buscar histórico: {e}")
+        print(f"❌ Erro ao consultar histórico: {e}")
 
 def exibir_interface():
     db = conectar_banco()
@@ -85,38 +84,37 @@ def exibir_interface():
         print("1. Calcular Nova Reserva de Emergência")
         print("2. Ver Histórico de Simulações (Banco de Dados)")
         print("3. Sair")
+        
         opcao = input("Escolha uma opção: ")
-
+        
         if opcao == "1":
             try:
-                gastos = float(input("Digite seu gasto mensal médio (R$): "))
+                gastos = float(input("Digite o seu gasto mensal médio (R$): "))
                 poupado = float(input("Quanto você tem guardado hoje (R$): "))
                 
                 meses = calcular_reserva(gastos, poupado)
-                print(f"\nSua reserva atual cobre {meses} meses de custo de vida.")
+                cotacao = buscar_cotacao_dolar()
                 
-                cotacao_usd = buscar_cotacao_dolar()
-                reserva_usd = 0.0
-                if cotacao_usd:
-                    reserva_usd = round(poupado / cotacao_usd, 2)
-                    print(f"Sua reserva convertida em Dólar (USD): $ {reserva_usd} (Cotação: R$ {cotacao_usd:.2f})")
+                print(f"\nSua reserva atual cobre {meses} meses de custo de vida.")
+                if cotacao:
+                    convertido = round(poupado / cotacao, 2)
+                    print(f"Sua reserva convertida em Dólar (USD): $ {convertido} (Cotação: R$ {cotacao})")
                 
                 if meses < 6:
                     print("⚠️ Alerta: Especialistas recomendam pelo menos 6 meses de reserva.")
-                else:
-                    print("🛡️ Parabéns! Sua reserva está em um nível seguro.")
                 
-                salvar = input("\Deseja salvar essa simulação no banco de dados? (s/n): ")
+                salvar = input("Deseja salvar essa simulação no banco de dados? (s/n): ")
                 if salvar.lower() == 's':
-                    salvar_simulacao(db, gastos, poupado, meses, reserva_usd)
+                    salvar_simulacao(db, poupado, meses, cotacao if cotacao else 0.0)
                     
             except ValueError as e:
-                print(f"❌ Erro: {e}")
+                print(f"❌ Entrada inválida: {e}")
             except Exception as e:
                 print(f"❌ Erro inesperado: {e}")
                 
         elif opcao == "2":
             listar_historico(db)
+            
         elif opcao == "3":
             print("Saindo... Cuide bem do seu patrimônio!")
             break
